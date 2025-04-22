@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>USDA API Viewer</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-bottom: 20px;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        #output {
+            margin-top: 20px;
+        }
+        .report {
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 15px;
+            background-color: #f9f9f9;
+        }
+        .report h3 {
+            margin-top: 0;
+            color: #2c3e50;
+        }
+        .report p {
+            margin: 5px 0;
+        }
+        .loading {
+            color: #7f8c8d;
+            font-style: italic;
+        }
+        .error {
+            color: #e74c3c;
+            font-weight: bold;
+        }
+        .json-view {
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <h1>USDA Market Reports</h1>
+    <button id="fetchBtn">Fetch Reports</button>
+    <div id="loading" class="loading" style="display: none;">Loading data...</div>
+    <div id="error" class="error" style="display: none;"></div>
+    
+    <div>
+        <label>
+            <input type="radio" name="viewType" value="formatted" checked> Formatted View
+        </label>
+        <label>
+            <input type="radio" name="viewType" value="json"> Raw JSON
+        </label>
+    </div>
+    <canvas id="eggChart" width="1080" height="700"></canvas>
+    <div id="output"></div>
+    
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const fetchBtn = document.getElementById('fetchBtn');
+            const output = document.getElementById('output');
+            const loading = document.getElementById('loading');
+            const errorDiv = document.getElementById('error');
+            let cachedData = null; // 💾 Save fetched data here
+        
+            const fetchReports = () => {
+                output.innerHTML = '';
+                errorDiv.style.display = 'none';
+                loading.style.display = 'block';
+        
+                fetch('/api/reports')
+                    .then(res => {
+                        if (!res.ok) throw new Error(`Server returned ${res.status}`);
+                        return res.json();
+                    })
+                    .then(result => {
+                        if (!result.success) throw new Error(result.error || 'Unknown error occurred');
+                        cachedData = result.data; // 💾 Save for view switching
+                        displayReports(cachedData);
+                    })
+                    .catch(err => {
+                        errorDiv.textContent = `Error: ${err.message}`;
+                        errorDiv.style.display = 'block';
+                        console.error('Fetch error:', err);
+                    })
+                    .finally(() => {
+                        loading.style.display = 'none';
+                    });
+            };
+        
+            const displayReports = (data) => {
+                const viewType = document.querySelector('input[name="viewType"]:checked')?.value;
+                const reports = Array.isArray(data.results) ? data.results : [];
+
+                if (viewType === 'json') {
+                output.innerHTML = `<div class="json-view">${JSON.stringify(data, null, 2)}</div>`;
+                } else {
+                output.innerHTML = reports.map(report => `
+                <div class="report">
+                <h3>${report.slug_name || 'Untitled Report'}</h3>
+                <p><strong>ID:</strong> ${report.slug_id}</p>
+                <p><strong>Date:</strong> ${report.report_date}</p>
+                <p><strong>Published:</strong> ${report.published_date}</p>
+                <p><strong>Status:</strong> ${report.final_ind}</p>
+                <p><strong>Markets:</strong> ${report.market_type || 'N/A'} - ${report.market_location_name || 'N/A'}</p>
+                <p><strong>Office:</strong> ${report.office_name || 'N/A'}, ${report.office_city || 'N/A'}, ${report.office_state || 'N/A'}</p>
+                <p><strong>Commodity:</strong> ${report.commodity}</p>
+                <p><strong>Volume:</strong> ${report.volume}</p>
+                <p><strong>Change from last week:</strong> ${report.pct_chg_last_week}</p>
+                </div>
+            `).join(''); 
+            const ctx = document.getElementById('eggChart').getContext('2d');
+const labels = reports.map(r => r.market_location_name || r.slug_name);
+const volumes = reports.map(r => r.volume);
+const changes = reports.map(r => parseFloat(r.pct_chg_last_week) || 0);
+
+new Chart(ctx, {
+    type: 'bar',
+    data: {
+        labels: labels,
+        datasets: [
+            {
+                label: 'Volume (Thousands)',
+                data: volumes,
+                backgroundColor: 'rgba(75, 192, 192, 0.6)',
+                borderColor: 'rgba(75, 192, 192, 1)',
+                borderWidth: 1
+            },
+            {
+                label: '% Change Last Week',
+                data: changes,
+                backgroundColor: 'rgba(255, 99, 132, 0.6)',
+                borderColor: 'rgba(255, 99, 132, 1)',
+                borderWidth: 1,
+                type: 'line',
+                yAxisID: 'y1'
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        scales: {
+            y: {
+                beginAtZero: true,
+                title: {
+                    display: true,
+                    text: 'Volume'
+                }
+            },
+            y1: {
+                beginAtZero: true,
+                position: 'right',
+                title: {
+                    display: true,
+                    text: '% Change'
+                },
+                grid: {
+                    drawOnChartArea: false
+                }
+            }
+        },
+        plugins: {
+            title: {
+                display: true,
+                text: 'Egg Market Volume & Weekly Change'
+            }
+        }
+    }
+});
+
+        }
+    };
+
+        
+            fetchBtn.addEventListener('click', fetchReports);
+        
+            document.querySelectorAll('input[name="viewType"]').forEach(radio => {
+                radio.addEventListener('change', () => {
+                    if (cachedData && !loading.style.display === 'block') {
+                        displayReports(cachedData);
+                    }
+                });
+            });
+        });
+        </script>
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+        
+</body>
+</html>
